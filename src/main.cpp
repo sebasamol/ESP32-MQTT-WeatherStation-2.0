@@ -4,6 +4,7 @@
 #include <Adafruit_BME280.h>
 #include <Wire.h>
 #include <SPI.h>
+#include <PubSubClient.h>
 
 #define SDApin 21
 #define SCLpin 22
@@ -11,16 +12,23 @@
 const char* ssid = "INEA-0082_2.4G";
 const char* pwd = "4YC3Hbce";
 
+const char* mqtt_broker = "192.168.1.13";
+const char* mqtt_user = "bastulon";
+const char* mqtt_pwd = "pt7T4RoqdPnzri7";
+const char* topic = "testTopic";
+const int mqtt_port = 1883;
+
 // int tempBME = 0;
 // int humBME = 0;
 // int pressBME = 0;
 
 
-
-IPAddress local_IP(192,168,1,10);
+IPAddress local_IP(192,168,1,15);
 IPAddress subnet(255,255,255,0);
 IPAddress gateway(192,168,1,1);
 
+WiFiClient espClient;
+PubSubClient client(espClient);
 Adafruit_BME280 bme;
 bool statusBME;
 
@@ -47,6 +55,8 @@ void setup() {
     Serial.println("\nConnected to the WiFi network");
     Serial.print("Local ESP32 IP: ");
     Serial.println(WiFi.localIP());
+    WiFi.setAutoReconnect(true);
+    WiFi.persistent(true);
 
     if (!statusBME) {
         Serial.println("Could not find a valid BME280 sensor, check wiring!");
@@ -54,6 +64,23 @@ void setup() {
     }else{
         Serial.println("BME280 connected");
     }
+    client.publish(topic, "1234");
+    client.subscribe(topic);
+    client.setServer(mqtt_broker, mqtt_port);
+    //client.setCallback(callback);
+        while (!client.connected()) {
+            String client_id = "esp32-client-";
+            client_id += String(WiFi.macAddress());
+            Serial.printf("The client %s connects to the public MQTT broker\n", client_id.c_str());
+            if (client.connect(client_id.c_str(), mqtt_user, mqtt_pwd)) {
+                Serial.println("Public EMQX MQTT broker connected");
+            } else {
+                Serial.print("failed with state ");
+                Serial.print(client.state());
+                delay(2000);
+            }
+    }
+    
 }
 
 void measureBME(){
@@ -75,7 +102,7 @@ void measureBME(){
 
 
    
-    delay(6000);
+    delay(10000);
 
 }
 
@@ -83,6 +110,9 @@ void measureBME(){
 
 void loop() { 
     measureBME();
+    client.publish(topic, "Hi from ESP");
+    delay(3000);
+    client.loop();
   
 }
 
