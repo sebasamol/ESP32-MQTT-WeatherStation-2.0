@@ -16,7 +16,13 @@ const char* mqtt_broker = "192.168.1.13";
 const char* mqtt_user = "bastulon";
 const char* mqtt_pwd = "pt7T4RoqdPnzri7";
 const char* topic = "testTopic";
+const char* tempTopic = "tempTopicPoznan";
+const char* humTopic = "humTopicPoznan";
+const char* pressTopic = "pressTopicPoznan";
 const int mqtt_port = 1883;
+
+unsigned long previousMillis = 0;
+unsigned long interval = 10000;
 
 // int tempBME = 0;
 // int humBME = 0;
@@ -32,13 +38,8 @@ PubSubClient client(espClient);
 Adafruit_BME280 bme;
 bool statusBME;
 
-void setup() {
 
-    Serial.begin(9600);
-    Wire.begin(SDApin,SCLpin);
-    statusBME = bme.begin(0x76);
-    delay(1000);
-
+void initWiFi() {
     WiFi.mode(WIFI_STA); 
     WiFi.begin(ssid, pwd);
     Serial.println("\nConnecting");
@@ -55,19 +56,11 @@ void setup() {
     Serial.println("\nConnected to the WiFi network");
     Serial.print("Local ESP32 IP: ");
     Serial.println(WiFi.localIP());
-    WiFi.setAutoReconnect(true);
-    WiFi.persistent(true);
+}
 
-    if (!statusBME) {
-        Serial.println("Could not find a valid BME280 sensor, check wiring!");
-        delay(5000);
-    }else{
-        Serial.println("BME280 connected");
-    }
-    client.publish(topic, "1234");
-    client.subscribe(topic);
+void initMQTT() {
+
     client.setServer(mqtt_broker, mqtt_port);
-    //client.setCallback(callback);
         while (!client.connected()) {
             String client_id = "esp32-client-";
             client_id += String(WiFi.macAddress());
@@ -80,6 +73,26 @@ void setup() {
                 delay(2000);
             }
     }
+}
+
+void setup() {
+
+    Serial.begin(9600);
+    Wire.begin(SDApin,SCLpin);
+    statusBME = bme.begin(0x76);
+    delay(1000);
+
+    initWiFi();
+    initMQTT();
+
+    if (!statusBME) {
+        Serial.println("Could not find a valid BME280 sensor, check wiring!");
+        delay(5000);
+    }else{
+        Serial.println("BME280 connected");
+    }
+    
+    
     
 }
 
@@ -109,9 +122,19 @@ void measureBME(){
 
 
 void loop() { 
+    unsigned long currentMillis = millis();
+    //WiFi Reconnecting
+    if ((WiFi.status() != WL_CONNECTED) && (currentMillis - previousMillis >= interval)) {
+        Serial.print(millis());
+        Serial.println("Reconnecting to WiFi...");
+        WiFi.disconnect();
+        WiFi.reconnect();
+        previousMillis = currentMillis;
+    }
+
     measureBME();
     client.publish(topic, "Hi from ESP");
-    delay(3000);
+    delay(5000);
     client.loop();
   
 }
