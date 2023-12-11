@@ -16,15 +16,17 @@ const char* mqtt_broker = "192.168.1.13";
 const char* mqtt_user = "bastulon";
 const char* mqtt_pwd = "pt7T4RoqdPnzri7";
 const char* topic = "testTopic";
-const char* tempTopic = "tempTopicPoznan";
-const char* humTopic = "humTopicPoznan";
-const char* pressTopic = "pressTopicPoznan";
+const char* tempOutTopic = "tempOutPoznan";
+const char* humOutTopic = "humOutPoznan";
+const char* pressOutTopic = "pressOutPoznan";
 const int mqtt_port = 1883;
 
-unsigned long previousMillis = 0;
-unsigned long interval = 10000;
+unsigned long previousMillisWiFi = 0;
+unsigned long intervalWiFi = 5000;
 
-// int tempBME = 0;
+float tempBME = 0;
+float humBME = 0;
+float pressBME = 0;
 // int humBME = 0;
 // int pressBME = 0;
 
@@ -40,6 +42,7 @@ bool statusBME;
 
 
 void initWiFi() {
+
     WiFi.mode(WIFI_STA); 
     WiFi.begin(ssid, pwd);
     Serial.println("\nConnecting");
@@ -66,7 +69,7 @@ void initMQTT() {
             client_id += String(WiFi.macAddress());
             Serial.printf("The client %s connects to the public MQTT broker\n", client_id.c_str());
             if (client.connect(client_id.c_str(), mqtt_user, mqtt_pwd)) {
-                Serial.println("Public EMQX MQTT broker connected");
+                Serial.println("MQTT broker connected!");
             } else {
                 Serial.print("failed with state ");
                 Serial.print(client.state());
@@ -74,33 +77,25 @@ void initMQTT() {
             }
     }
 }
-
-void setup() {
-
-    Serial.begin(9600);
-    Wire.begin(SDApin,SCLpin);
-    statusBME = bme.begin(0x76);
-    delay(1000);
-
-    initWiFi();
-    initMQTT();
-
-    if (!statusBME) {
-        Serial.println("Could not find a valid BME280 sensor, check wiring!");
-        delay(5000);
-    }else{
-        Serial.println("BME280 connected");
-    }
-    
-    
-    
-}
-
 void measureBME(){
-    
-    
-    
 
+    tempBME = bme.readTemperature();
+    humBME = bme.readHumidity();
+    pressBME = bme.readPressure();
+
+    char tempString[8];
+    char humString[8];
+    char pressString[8];
+
+
+    dtostrf(tempBME, 1, 2, tempString);
+    client.publish(tempOutTopic, tempString);
+
+   
+
+
+    
+    
     Serial.print("Temperatura = ");
     Serial.print(bme.readTemperature());
     Serial.println(" *C");
@@ -112,28 +107,51 @@ void measureBME(){
     Serial.print("Ciśnienie = ");
     Serial.print(bme.readPressure() / 100.0F);
     Serial.println(" hPa");
+    delay(5000);
 
+}
 
-   
-    delay(10000);
+void setup() {
 
+    Serial.begin(9600);
+    Wire.begin(SDApin,SCLpin);
+    statusBME = bme.begin(0x76);
+    delay(1000);
+
+    if (!statusBME) {
+        Serial.println("Could not find a valid BME280 sensor, check wiring!");
+        delay(5000);
+    }else{
+        Serial.println("BME280 connected");
+        delay(1000);
+    }
+
+    initWiFi();
+    initMQTT();
+
+    
+    
+    
 }
 
 
 
+
+
 void loop() { 
-    unsigned long currentMillis = millis();
+
+    unsigned long currentMillisWiFi = millis();
     //WiFi Reconnecting
-    if ((WiFi.status() != WL_CONNECTED) && (currentMillis - previousMillis >= interval)) {
-        Serial.print(millis());
+    if ((WiFi.status() != WL_CONNECTED) && (currentMillisWiFi - previousMillisWiFi >= intervalWiFi)) {
+        //Serial.print(millis());
         Serial.println("Reconnecting to WiFi...");
         WiFi.disconnect();
         WiFi.reconnect();
-        previousMillis = currentMillis;
+        previousMillisWiFi = currentMillisWiFi;
     }
-
+    client.loop();
     measureBME();
-    client.publish(topic, "Hi from ESP");
+    //client.publish(topic, "Hi from ESP");
     delay(5000);
     client.loop();
   
