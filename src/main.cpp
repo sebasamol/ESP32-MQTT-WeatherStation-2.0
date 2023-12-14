@@ -23,12 +23,12 @@ const int mqtt_port = 1883;
 
 unsigned long previousMillisWiFi = 0;
 unsigned long intervalWiFi = 5000;
+unsigned long previousMillisMQTT = 0;
+unsigned long intervalMQTT = 5000;
 
 float tempBME = 0;
 float humBME = 0;
 float pressBME = 0;
-// int humBME = 0;
-// int pressBME = 0;
 
 
 IPAddress local_IP(192,168,1,15);
@@ -61,13 +61,13 @@ void initWiFi() {
     Serial.println(WiFi.localIP());
 }
 
-void initMQTT() {
+void connectMQTT() {
 
-    client.setServer(mqtt_broker, mqtt_port);
-        while (!client.connected()) {
+     while (!client.connected()) {
             String client_id = "esp32-client-";
             client_id += String(WiFi.macAddress());
             Serial.printf("The client %s connects to the public MQTT broker\n", client_id.c_str());
+
             if (client.connect(client_id.c_str(), mqtt_user, mqtt_pwd)) {
                 Serial.println("MQTT broker connected!");
             } else {
@@ -79,35 +79,36 @@ void initMQTT() {
 }
 void measureBME(){
 
-    tempBME = bme.readTemperature();
-    humBME = bme.readHumidity();
-    pressBME = bme.readPressure();
-
-    char tempString[8];
-    char humString[8];
-    char pressString[8];
+    unsigned long currentMillisBME = millis();
+    unsigned long previousMillisBME = 0;
+    unsigned long intervalBME = 3000;
 
 
-    dtostrf(tempBME, 1, 2, tempString);
-    client.publish(tempOutTopic, tempString);
+    if(currentMillisBME - previousMillisBME >= intervalBME){
 
-   
+        tempBME = bme.readTemperature();
+        humBME = bme.readHumidity();
+        pressBME = bme.readPressure() / 100.0F;
+
+        char tempString[8];
+        char humString[8];
+        char pressString[9];
+
+
+        dtostrf(tempBME, 1, 2, tempString);
+        dtostrf(humBME, 1, 2, humString);
+        dtostrf(pressBME, 1, 2, pressString);
+        
+
+        client.publish(tempOutTopic, tempString);
+        client.publish(humOutTopic, humString);
+        client.publish(pressOutTopic, pressString);
+        previousMillisBME = currentMillisBME;
+    }
+
 
 
     
-    
-    Serial.print("Temperatura = ");
-    Serial.print(bme.readTemperature());
-    Serial.println(" *C");
-
-    Serial.print("Wilgotność = ");
-    Serial.print(bme.readHumidity());
-    Serial.println(" %");
-
-    Serial.print("Ciśnienie = ");
-    Serial.print(bme.readPressure() / 100.0F);
-    Serial.println(" hPa");
-    delay(5000);
 
 }
 
@@ -125,13 +126,9 @@ void setup() {
         Serial.println("BME280 connected");
         delay(1000);
     }
-
+    client.setServer(mqtt_broker, mqtt_port);
     initWiFi();
-    initMQTT();
-
-    
-    
-    
+    connectMQTT();
 }
 
 
@@ -141,6 +138,7 @@ void setup() {
 void loop() { 
 
     unsigned long currentMillisWiFi = millis();
+    unsigned long currentMillisMQTT = millis();
     //WiFi Reconnecting
     if ((WiFi.status() != WL_CONNECTED) && (currentMillisWiFi - previousMillisWiFi >= intervalWiFi)) {
         //Serial.print(millis());
@@ -149,12 +147,20 @@ void loop() {
         WiFi.reconnect();
         previousMillisWiFi = currentMillisWiFi;
     }
+    if (WiFi.status() == WL_CONNECTED && !client.connected() && (currentMillisMQTT - previousMillisMQTT >= intervalMQTT)) {
+        Serial.println("Reconnection to MQTT Broker");
+        connectMQTT();
+        previousMillisMQTT = currentMillisMQTT;
+
+    } else if (WiFi.status() == WL_CONNECTED && client.connected()) { 
+        measureBME();
+    }
     client.loop();
-    measureBME();
-    //client.publish(topic, "Hi from ESP");
-    delay(5000);
-    client.loop();
+    
+} 
+    
+    
   
-}
+
 
 
