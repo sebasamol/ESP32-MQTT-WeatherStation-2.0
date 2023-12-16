@@ -20,10 +20,20 @@ const char* pwd = "4YC3Hbce";
 const char* mqtt_broker = "192.168.1.13";
 const char* mqtt_user = "bastulon";
 const char* mqtt_pwd = "pt7T4RoqdPnzri7";
+
 const char* topic = "testTopic";
 const char* tempOutTopic = "tempOutPoznan";
 const char* humOutTopic = "humOutPoznan";
 const char* pressOutTopic = "pressOutPoznan";
+const char* tempInTopic = "tempInPoznan";
+const char* humInTopic = "humInTopic";
+const char* aqiTopic = "aqiPoznan";
+const char* tvocTopic = "tvocPoznan";
+const char* eco2Topic = "eco2Poznan";
+
+
+
+
 const int mqtt_port = 1883;
 
 unsigned long previousMillisWiFi = 0;
@@ -32,13 +42,19 @@ unsigned long intervalWiFi = 5000;
 unsigned long previousMillisMQTT = 0;
 unsigned long intervalMQTT = 5000;
 
-unsigned long currentMillisBME = 0;
-unsigned long previousMillisBME = 0;
-unsigned long intervalBME = 3000;
+unsigned long currentMillis_outside = 0;
+unsigned long previousMillis_outside = 0;
+unsigned long interval_outside = 3000;
 
-float tempBME = 0;
-float humBME = 0;
-float pressBME = 0;
+unsigned long currentMillis_inside = 0;
+unsigned long previousMillis_inside = 0;
+unsigned long interval_inside = 3000;
+
+float tempBME_outside = 0;
+float humBME_outside = 0;
+float pressBME_outside = 0;
+float tempBME_inside = 0;
+float humBME_inside = 0; 
 
 
 IPAddress local_IP(192,168,1,15);
@@ -48,13 +64,13 @@ IPAddress gateway(192,168,1,1);
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-Adafruit_BME280 bme1;
-Adafruit_BME280 bme2;
+Adafruit_BME280 bme_outside;
+Adafruit_BME280 bme_inside;
 
 DFRobot_ENS160_I2C ENS160(&Wire, 0x53);
 
-bool statusBME1;
-bool statusBME2;
+bool statusBME_outside;
+bool statusBME_inside;
 
 
 void initWiFi() {
@@ -93,37 +109,84 @@ void connectMQTT() {
         }
     }
 }
-void measureBME(){
+void measurementsOutside(){
     
 
-    currentMillisBME = millis();
+    currentMillis_outside = millis();
 
-    if(currentMillisBME - previousMillisBME >= intervalBME){
-        previousMillisBME = currentMillisBME;
-            
-        tempBME = bme2.readTemperature();
-        humBME = bme2.readHumidity();
-        pressBME = bme2.readPressure() / 100.0F;
+    if(currentMillis_outside - previousMillis_outside >= interval_outside){
+        previousMillis_outside = currentMillis_outside;
+        
+        uint8_t AQI = ENS160.getAQI();
+        uint16_t TVOC = ENS160.getTVOC();
+        uint16_t ECO2 = ENS160.getECO2();
+
+        tempBME_outside = bme_outside.readTemperature();
+        humBME_outside = bme_outside.readHumidity();
+        pressBME_outside = bme_outside.readPressure() / 100.0F;
 
         char tempString[8];
         char humString[8];
         char pressString[9];
+        char aqiString[8];
+        char tvocString[8];
+        char eco2String[8];
 
 
-        dtostrf(tempBME, 1, 2, tempString);
-        dtostrf(humBME, 1, 2, humString);
-        dtostrf(pressBME, 1, 2, pressString);
+        dtostrf(tempBME_outside, 1, 2, tempString);
+        dtostrf(humBME_outside, 1, 2, humString);
+        dtostrf(pressBME_outside, 1, 2, pressString);
+        dtostrf(AQI, 1, 2, aqiString);
+        dtostrf(TVOC, 1, 2, tvocString);
+        dtostrf(ECO2, 1, 2, eco2String);
                     
 
         client.publish(tempOutTopic, tempString);
         client.publish(humOutTopic, humString);
         client.publish(pressOutTopic, pressString);
+        client.publish(aqiTopic, aqiString);
+        client.publish(tvocTopic, tvocString);
+        client.publish(eco2Topic, eco2String);
     
     }
     
 }
-void measureENS160(){
+
+void measurementsInside(){
+
+    currentMillis_inside = millis();
+
+    if(currentMillis_inside - previousMillis_inside >= interval_inside){
+        previousMillis_inside = currentMillis_inside;
+            
+        tempBME_inside = bme_inside.readTemperature();
+        humBME_inside = bme_inside.readHumidity();
+        
+        char tempString[8];
+        char humString[8];
+        
+        dtostrf(tempBME_inside, 1, 2, tempString);
+        dtostrf(humBME_inside, 1, 2, humString);
+            
+
+        client.publish(tempInTopic, tempString);
+        client.publish(humInTopic, humString);
+        
     
+    }
+
+}
+
+void measureENS160(){
+    /**
+   * Get the sensor operating status
+   * Return value: 0-Normal operation, 
+   *         1-Warm-Up phase, first 3 minutes after power-on.
+   *         2-Initial Start-Up phase, first full hour of operation after initial power-on. Only once in the sensor’s lifetime.
+   * note: Note that the status will only be stored in the non-volatile memory after an initial 24h of continuous
+   *       operation. If unpowered before conclusion of said period, the ENS160 will resume "Initial Start-up" mode
+   *       after re-powering.
+   */
     uint8_t Status = ENS160.getENS160Status();
     
     Serial.print("Sensor operating status : ");
@@ -169,8 +232,8 @@ void setup() {
     Wire.begin(SDApin_1,SCLpin_1);
     Wire1.begin(SDApin_2,SCLpin_2);
 
-    statusBME1 = bme1.begin(0x76);
-    statusBME2 = bme2.begin(0x76, &Wire1); 
+    statusBME_outside = bme_outside.begin(0x76);
+    statusBME_inside = bme_inside.begin(0x76, &Wire1); 
 
     ENS160.setPWRMode(ENS160_STANDARD_MODE);
     ENS160.setTempAndHum(25.0, 50.0);
@@ -178,14 +241,14 @@ void setup() {
 
     delay(1000);
 
-    if (!statusBME1) {
+    if (!statusBME_outside) {
         Serial.println("Could not find a first BME280 sensor, check wiring!");
         delay(5000);
     }else{
         Serial.println("First BME280 connected");
         delay(1000);
     }
-    if (!statusBME2) {
+    if (!statusBME_inside) {
         Serial.println("Could not find a second BME280 sensor, check wiring!");
         delay(5000);
     }else{
@@ -227,8 +290,8 @@ void loop() {
         previousMillisMQTT = currentMillisMQTT;
 
     } else if (WiFi.status() == WL_CONNECTED && client.connected()) { 
-        measureBME();
-        measureENS160();
+        measurementsOutside();
+        measurementsInside();
 
     }
     client.loop();
