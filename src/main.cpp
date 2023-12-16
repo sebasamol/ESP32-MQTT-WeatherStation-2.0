@@ -7,8 +7,12 @@
 #include <PubSubClient.h>
 #include <DFRobot_ENS160.h>
 
-#define SDApin 21
-#define SCLpin 22
+#define SDApin_1 21
+#define SCLpin_1 22
+#define SDApin_2 33
+#define SCLpin_2 32
+
+
 
 const char* ssid = "INEA-0082_2.4G";
 const char* pwd = "4YC3Hbce";
@@ -24,6 +28,7 @@ const int mqtt_port = 1883;
 
 unsigned long previousMillisWiFi = 0;
 unsigned long intervalWiFi = 5000;
+
 unsigned long previousMillisMQTT = 0;
 unsigned long intervalMQTT = 5000;
 
@@ -42,10 +47,14 @@ IPAddress gateway(192,168,1,1);
 
 WiFiClient espClient;
 PubSubClient client(espClient);
-Adafruit_BME280 bme;
+
+Adafruit_BME280 bme1;
+Adafruit_BME280 bme2;
+
 DFRobot_ENS160_I2C ENS160(&Wire, 0x53);
 
-bool statusBME;
+bool statusBME1;
+bool statusBME2;
 
 
 void initWiFi() {
@@ -92,9 +101,9 @@ void measureBME(){
     if(currentMillisBME - previousMillisBME >= intervalBME){
         previousMillisBME = currentMillisBME;
             
-        tempBME = bme.readTemperature();
-        humBME = bme.readHumidity();
-        pressBME = bme.readPressure() / 100.0F;
+        tempBME = bme2.readTemperature();
+        humBME = bme2.readHumidity();
+        pressBME = bme2.readPressure() / 100.0F;
 
         char tempString[8];
         char humString[8];
@@ -156,21 +165,40 @@ void measureENS160(){
 void setup() {
 
     Serial.begin(9600);
-    Wire.begin(SDApin,SCLpin);
-    statusBME = bme.begin(0x76);
+
+    Wire.begin(SDApin_1,SCLpin_1);
+    Wire1.begin(SDApin_2,SCLpin_2);
+
+    statusBME1 = bme1.begin(0x76);
+    statusBME2 = bme2.begin(0x76, &Wire1); 
+
     ENS160.setPWRMode(ENS160_STANDARD_MODE);
     ENS160.setTempAndHum(25.0, 50.0);
 
 
     delay(1000);
 
-    if (!statusBME) {
-        Serial.println("Could not find a valid BME280 sensor, check wiring!");
+    if (!statusBME1) {
+        Serial.println("Could not find a first BME280 sensor, check wiring!");
         delay(5000);
     }else{
-        Serial.println("BME280 connected");
+        Serial.println("First BME280 connected");
         delay(1000);
     }
+    if (!statusBME2) {
+        Serial.println("Could not find a second BME280 sensor, check wiring!");
+        delay(5000);
+    }else{
+        Serial.println("Second BME280 connected");
+        delay(1000);
+    }
+
+     while( NO_ERR != ENS160.begin() ){
+        Serial.println("Communication with ENS160 failed, please check connection");
+        delay(3000);
+    }
+    Serial.println("Begin ENS160 ok!");
+
     client.setServer(mqtt_broker, mqtt_port);
     initWiFi();
     connectMQTT();
