@@ -6,6 +6,7 @@
 #include <SPI.h>
 #include <PubSubClient.h>
 #include <DFRobot_ENS160.h>
+#include <ArduinoJson.h>
 
 #define SDApin_1 21
 #define SCLpin_1 22
@@ -22,16 +23,8 @@ const char* mqtt_user = "bastulon";
 const char* mqtt_pwd = "pt7T4RoqdPnzri7";
 
 const char* topic = "testTopic";
-const char* tempOutTopic = "tempOutPoznan";
-const char* humOutTopic = "humOutPoznan";
-const char* pressOutTopic = "pressOutPoznan";
-const char* tempInTopic = "tempInPoznan";
-const char* humInTopic = "humInTopic";
-const char* aqiTopic = "aqiPoznan";
-const char* tvocTopic = "tvocPoznan";
-const char* eco2Topic = "eco2Poznan";
-
-
+const char* dataPoznanInside = "dataPoznanInside";
+const char* dataPoznanOutside = "dataPoznanOutside";
 
 
 const int mqtt_port = 1883;
@@ -50,11 +43,7 @@ unsigned long currentMillis_inside = 0;
 unsigned long previousMillis_inside = 0;
 unsigned long interval_inside = 3000;
 
-float tempBME_outside = 0;
-float humBME_outside = 0;
-float pressBME_outside = 0;
-float tempBME_inside = 0;
-float humBME_inside = 0; 
+
 
 
 IPAddress local_IP(192,168,1,15);
@@ -109,73 +98,6 @@ void connectMQTT() {
         }
     }
 }
-void measurementsOutside(){
-    
-
-    currentMillis_outside = millis();
-
-    if(currentMillis_outside - previousMillis_outside >= interval_outside){
-        previousMillis_outside = currentMillis_outside;
-        
-        uint8_t AQI = ENS160.getAQI();
-        uint16_t TVOC = ENS160.getTVOC();
-        uint16_t ECO2 = ENS160.getECO2();
-
-        tempBME_outside = bme_outside.readTemperature();
-        humBME_outside = bme_outside.readHumidity();
-        pressBME_outside = bme_outside.readPressure() / 100.0F;
-
-        char tempString[8];
-        char humString[8];
-        char pressString[9];
-        char aqiString[8];
-        char tvocString[8];
-        char eco2String[8];
-
-
-        dtostrf(tempBME_outside, 1, 2, tempString);
-        dtostrf(humBME_outside, 1, 2, humString);
-        dtostrf(pressBME_outside, 1, 2, pressString);
-        dtostrf(AQI, 1, 2, aqiString);
-        dtostrf(TVOC, 1, 2, tvocString);
-        dtostrf(ECO2, 1, 2, eco2String);
-                    
-
-        client.publish(tempOutTopic, tempString);
-        client.publish(humOutTopic, humString);
-        client.publish(pressOutTopic, pressString);
-        client.publish(aqiTopic, aqiString);
-        client.publish(tvocTopic, tvocString);
-        client.publish(eco2Topic, eco2String);
-    
-    }
-    
-}
-
-void measurementsInside(){
-
-    currentMillis_inside = millis();
-
-    if(currentMillis_inside - previousMillis_inside >= interval_inside){
-        previousMillis_inside = currentMillis_inside;
-            
-        tempBME_inside = bme_inside.readTemperature();
-        humBME_inside = bme_inside.readHumidity();
-        
-        char tempString[8];
-        char humString[8];
-        
-        dtostrf(tempBME_inside, 1, 2, tempString);
-        dtostrf(humBME_inside, 1, 2, humString);
-            
-
-        client.publish(tempInTopic, tempString);
-        client.publish(humInTopic, humString);
-        
-    
-    }
-
-}
 
 void measureENS160(){
     /**
@@ -223,6 +145,59 @@ void measureENS160(){
     Serial.println();
     
     delay(5000);
+}
+void dataInside() {
+    DynamicJsonDocument doc(1024);
+    char buffer [200];
+    currentMillis_inside = millis();
+    
+    JsonArray tempBME = doc.createNestedArray("temp");
+    JsonArray humBME = doc.createNestedArray("hum");
+
+
+    if(currentMillis_inside - previousMillis_inside >= interval_inside){
+        previousMillis_inside = currentMillis_inside;
+    
+        tempBME.add(bme_inside.readTemperature());
+        humBME.add(bme_inside.readHumidity());
+    
+        serializeJsonPretty(doc,buffer);
+        client.publish(dataPoznanInside,buffer);
+        doc.clear();
+        memset(buffer,0,sizeof(buffer));   
+    }
+}
+
+void dataOutside() {
+    DynamicJsonDocument doc(1024);
+    char buffer [300];
+    currentMillis_outside = millis();
+
+    JsonArray tempBME = doc.createNestedArray("temp");
+    JsonArray humBME = doc.createNestedArray("hum");
+    JsonArray pressBME = doc.createNestedArray("press");
+    JsonArray aqi = doc.createNestedArray("aqi");
+    JsonArray eco2 = doc.createNestedArray("eco2");
+    JsonArray tvoc = doc.createNestedArray("tvoc");
+
+
+    if(currentMillis_outside - previousMillis_outside >= interval_outside){
+        previousMillis_outside = currentMillis_outside;
+        
+
+        tempBME.add(bme_outside.readTemperature());
+        humBME.add(bme_outside.readHumidity());
+        pressBME.add(bme_outside.readPressure() / 100.0F);
+        aqi.add(ENS160.getAQI());
+        eco2.add(ENS160.getTVOC());
+        tvoc.add(ENS160.getECO2());
+
+        serializeJsonPretty(doc,buffer);
+        client.publish(dataPoznanOutside,buffer);
+        doc.clear();
+        memset(buffer,0,sizeof(buffer));  
+
+    }
 }
 
 void setup() {
@@ -275,10 +250,9 @@ void loop() {
 
     unsigned long currentMillisWiFi = millis();
     unsigned long currentMillisMQTT = millis();
-    //WiFi Reconnecting
+
     if ((WiFi.status() != WL_CONNECTED) && (currentMillisWiFi - previousMillisWiFi >= intervalWiFi)) {
         
-        //Serial.print(millis());
         Serial.println("Reconnecting to WiFi...");
         WiFi.disconnect();
         WiFi.reconnect();
@@ -290,9 +264,8 @@ void loop() {
         previousMillisMQTT = currentMillisMQTT;
 
     } else if (WiFi.status() == WL_CONNECTED && client.connected()) { 
-        measurementsOutside();
-        measurementsInside();
-
+        dataInside();
+        dataOutside();
     }
     client.loop();
     
