@@ -25,6 +25,7 @@ const char* mqtt_pwd = "pt7T4RoqdPnzri7";
 const char* topic = "testTopic";
 const char* dataPoznanInside = "dataPoznanInside";
 const char* dataPoznanOutside = "dataPoznanOutside";
+const char* service = "service";
 
 
 const int mqtt_port = 1883;
@@ -43,6 +44,9 @@ unsigned long currentMillis_inside = 0;
 unsigned long previousMillis_inside = 0;
 unsigned long interval_inside = 3000;
 
+unsigned long currentMillis_service = 0;
+unsigned long previousMillis_service = 0;
+unsigned long interval_service = 3000;
 
 
 
@@ -99,53 +103,6 @@ void connectMQTT() {
     }
 }
 
-void measureENS160(){
-    /**
-   * Get the sensor operating status
-   * Return value: 0-Normal operation, 
-   *         1-Warm-Up phase, first 3 minutes after power-on.
-   *         2-Initial Start-Up phase, first full hour of operation after initial power-on. Only once in the sensor’s lifetime.
-   * note: Note that the status will only be stored in the non-volatile memory after an initial 24h of continuous
-   *       operation. If unpowered before conclusion of said period, the ENS160 will resume "Initial Start-up" mode
-   *       after re-powering.
-   */
-    uint8_t Status = ENS160.getENS160Status();
-    
-    Serial.print("Sensor operating status : ");
-    Serial.println(Status);
-
-    /**
-     * Get the air quality index
-     * Return value: 1-Excellent, 2-Good, 3-Moderate, 4-Poor, 5-Unhealthy
-     */
-    uint8_t AQI = ENS160.getAQI();
-    Serial.print("Air quality index : ");
-    Serial.println(AQI);
-
-    /**
-     * Get TVOC concentration
-     * Return value range: 0–65000, unit: ppb
-     */
-    uint16_t TVOC = ENS160.getTVOC();
-    Serial.print("Concentration of total volatile organic compounds : ");
-    Serial.print(TVOC);
-    Serial.println(" ppb");
-
-    /**
-     * Get CO2 equivalent concentration calculated according to the detected data of VOCs and hydrogen (eCO2 – Equivalent CO2)
-     * Return value range: 400–65000, unit: ppm
-     * Five levels: Excellent(400 - 600), Good(600 - 800), Moderate(800 - 1000), 
-     *               Poor(1000 - 1500), Unhealthy(> 1500)
-     */
-    uint16_t ECO2 = ENS160.getECO2();
-    Serial.print("Carbon dioxide equivalent concentration : ");
-    Serial.print(ECO2);
-    Serial.println(" ppm");
-
-    Serial.println();
-    
-    delay(5000);
-}
 void dataInside() {
     DynamicJsonDocument doc(1024);
     char buffer [200];
@@ -188,6 +145,7 @@ void dataOutside() {
         tempBME.add(bme_outside.readTemperature());
         humBME.add(bme_outside.readHumidity());
         pressBME.add(bme_outside.readPressure() / 100.0F);
+
         aqi.add(ENS160.getAQI());
         eco2.add(ENS160.getTVOC());
         tvoc.add(ENS160.getECO2());
@@ -197,6 +155,28 @@ void dataOutside() {
         doc.clear();
         memset(buffer,0,sizeof(buffer));  
 
+    }
+}
+
+void serviceFunction() {
+
+    currentMillis_service = millis();
+
+    if(currentMillis_service - previousMillis_outside >= interval_service) { 
+        previousMillis_service = currentMillis_service;
+        while (!statusBME_outside) {
+            client.publish(service,"Lost connection with outside BME280");
+            delay(5000);
+        } 
+        while (!statusBME_inside) {
+            client.publish(service,"Lost connection with inside BME280");
+            delay(5000);
+        } 
+        while ( NO_ERR != ENS160.begin() ){
+            Serial.println("Communication with ENS160 failed, please check connection");
+            delay(5000);
+        }
+    
     }
 }
 
@@ -212,39 +192,12 @@ void setup() {
 
     ENS160.setPWRMode(ENS160_STANDARD_MODE);
     ENS160.setTempAndHum(25.0, 50.0);
-
-
     delay(1000);
-
-    if (!statusBME_outside) {
-        Serial.println("Could not find a first BME280 sensor, check wiring!");
-        delay(5000);
-    }else{
-        Serial.println("First BME280 connected");
-        delay(1000);
-    }
-    if (!statusBME_inside) {
-        Serial.println("Could not find a second BME280 sensor, check wiring!");
-        delay(5000);
-    }else{
-        Serial.println("Second BME280 connected");
-        delay(1000);
-    }
-
-     while( NO_ERR != ENS160.begin() ){
-        Serial.println("Communication with ENS160 failed, please check connection");
-        delay(3000);
-    }
-    Serial.println("Begin ENS160 ok!");
 
     client.setServer(mqtt_broker, mqtt_port);
     initWiFi();
     connectMQTT();
 }
-
-
-
-
 
 void loop() { 
 
@@ -253,19 +206,20 @@ void loop() {
 
     if ((WiFi.status() != WL_CONNECTED) && (currentMillisWiFi - previousMillisWiFi >= intervalWiFi)) {
         
-        Serial.println("Reconnecting to WiFi...");
+        client.publish(service,"Reconnecting to WiFi...");
         WiFi.disconnect();
         WiFi.reconnect();
         previousMillisWiFi = currentMillisWiFi;
     }
     if (WiFi.status() == WL_CONNECTED && !client.connected() && (currentMillisMQTT - previousMillisMQTT >= intervalMQTT)) {
-        Serial.println("Reconnection to MQTT Broker");
+        client.publish(service,"Reconnection to MQTT Broker");
         connectMQTT();
         previousMillisMQTT = currentMillisMQTT;
 
     } else if (WiFi.status() == WL_CONNECTED && client.connected()) { 
         dataInside();
         dataOutside();
+        serviceFunction();
     }
     client.loop();
     
